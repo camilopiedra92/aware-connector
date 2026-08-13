@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AwareClient, AwareApiError, findByEmail, formatPersonLines, searchPeople, type Person } from "../src/client.ts";
+import {
+  AwareClient,
+  AwareApiError,
+  findByEmail,
+  formatPersonLines,
+  searchPeople,
+  toPersonSummary,
+  directReports,
+  managerChain,
+  type Person,
+} from "../src/client.ts";
 
 /** Minimal fake matching the slice of TokenManager the client depends on. */
 function fakeTokens(tokens: string[]) {
@@ -120,6 +130,99 @@ test("formatPersonLines drops the manager/org line when both are absent", () => 
   const lines = formatPersonLines(person({ Preferred_Name: "Solo", Work_Email: "solo@x.com" }));
   assert.equal(lines.length, 2); // name/title line + email line, no chain line
   assert.ok(!lines.join("\n").includes("manager:"));
+});
+
+test("toPersonSummary keeps only the whitelisted fields", () => {
+  // Feed records carry ~32 fields; sending them all would waste the model's context.
+  const summary = toPersonSummary(person({
+    Worker_ID: "42",
+    Preferred_Name: "Jane Doe",
+    Work_Email: "jane@autodesk.com",
+    Business_Title: "Engineer",
+    Managers_Display_Name: "Bob Smith",
+    Managers_Worker_ID: "7",
+    Supervisory_Organization_Name: "Platform",
+    Work_Location_City: "Barcelona",
+    Work_Location_Country: "Spain",
+    Cost_Center: "CC-1234",
+    Hire_Date: "2019-01-01",
+  }));
+
+  assert.deepEqual(summary, {
+    workerId: "42",
+    name: "Jane Doe",
+    email: "jane@autodesk.com",
+    title: "Engineer",
+    manager: "Bob Smith",
+    managerWorkerId: "7",
+    organization: "Platform",
+    city: "Barcelona",
+    country: "Spain",
+  });
+});
+
+test("toPersonSummary omits fields the feed record does not carry", () => {
+  const summary = toPersonSummary(person({ Worker_ID: "1", Preferred_Name: "Solo" }));
+  assert.deepEqual(summary, { workerId: "1", name: "Solo" });
+});
+
+/** A small org: ceo <- director <- manager <- ana, plus bruno reporting to manager. */
+function orgFixture(): Person[] {
+  return [
+    person({ Worker_ID: "1", Preferred_Name: "Ceo" }),
+    person({ Worker_ID: "2", Preferred_Name: "Director", Managers_Worker_ID: "1" }),
+    person({ Worker_ID: "3", Preferred_Name: "Manager", Managers_Worker_ID: "2" }),
+    person({ Worker_ID: "4", Preferred_Name: "Ana", Managers_Worker_ID: "3" }),
+    person({ Worker_ID: "5", Preferred_Name: "Bruno", Managers_Worker_ID: "3" }),
+  ];
+}
+
+const names = (people: Person[]) => people.map((p) => p.Preferred_Name);
+
+test("managerChain walks from the immediate manager up to the root", () => {
+  const people = orgFixture();
+  const ana = people.find((p) => p.Worker_ID === "4")!;
+  assert.deepEqual(names(managerChain(people, ana)), ["Manager", "Director", "Ceo"]);
+});
+
+test("managerChain is empty for someone with no manager", () => {
+  const people = orgFixture();
+  const ceo = people.find((p) => p.Worker_ID === "1")!;
+  assert.deepEqual(managerChain(people, ceo), []);
+});
+
+test("managerChain stops when a manager is absent from the feed", () => {
+  // Real feeds omit records (contractors, filtered rows), leaving a dangling manager id.
+  const people = [person({ Worker_ID: "9", Preferred_Name: "Orphan", Managers_Worker_ID: "404" })];
+  assert.deepEqual(names(managerChain(people, people[0]!)), []);
+});
+
+test("managerChain terminates on a cycle instead of looping forever", () => {
+  const people = [
+    person({ Worker_ID: "1", Preferred_Name: "A", Managers_Worker_ID: "2" }),
+    person({ Worker_ID: "2", Preferred_Name: "B", Managers_Worker_ID: "1" }),
+  ];
+  assert.deepEqual(names(managerChain(people, people[0]!)), ["B"]);
+});
+
+test("managerChain terminates when someone is their own manager", () => {
+  const people = [person({ Worker_ID: "1", Preferred_Name: "Loop", Managers_Worker_ID: "1" })];
+  assert.deepEqual(managerChain(people, people[0]!), []);
+});
+
+test("directReports returns only immediate reports, not the whole subtree", () => {
+  const people = orgFixture();
+  const director = people.find((p) => p.Worker_ID === "2")!;
+  assert.deepEqual(names(directReports(people, director)), ["Manager"]); // not Ana/Bruno
+});
+
+test("directReports is empty for a leaf, and never counts blank manager ids as a match", () => {
+  const people = orgFixture();
+  const ana = people.find((p) => p.Worker_ID === "4")!;
+  assert.deepEqual(directReports(people, ana), []);
+  // A root has Managers_Worker_ID === ""; it must not report to the person with id "".
+  const ghost = person({ Worker_ID: "", Preferred_Name: "Ghost" });
+  assert.deepEqual(directReports([...people, ghost], ghost), []);
 });
 
 test("findByEmail matches one person case-insensitively", () => {

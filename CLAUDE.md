@@ -5,9 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm install                              # dev deps only (typescript, @types/node); zero runtime deps
+npm install                              # runtime deps are MCP-only (see below); the CLI uses none
 node src/cli.ts <command>                # run the CLI (login | me | search <q> | people | logout)
 node src/cli.ts search <q> --limit 5     # search flags: --limit N, --all; --refresh bypasses the feed cache
+node src/mcp.ts                          # run the MCP server (speaks JSON-RPC on stdio; not interactive)
 npm test                                 # run all tests (node --test over test/*.ts)
 node --test test/auth.test.ts            # run a single test file
 node --test --test-name-pattern="refresh" # run tests whose name matches a pattern
@@ -24,7 +25,11 @@ type-stripping; `tsc` is used only for type-checking.
 - **Node type-stripping is strip-only**, so TS syntax that emits code is forbidden:
   no parameter properties (`constructor(private x)` — declare fields explicitly), no
   enums, no namespaces. Local `.ts` imports must include the `.ts` extension.
-- Keep runtime dependencies at zero unless there is no stdlib path; that is a design goal, not an accident.
+- **Runtime deps are confined to the MCP entry point.** `@modelcontextprotocol/server` and
+  `zod` exist only for `src/mcp.ts`; `src/cli.ts` and everything it imports stay dependency-free,
+  so `node src/cli.ts` works against an empty `node_modules`. Keep it that way. `@modelcontextprotocol/server`
+  is deliberately not `@modelcontextprotocol/sdk`: the latter pulls express/hono for HTTP
+  transports this stdio server never uses (91 packages vs 2).
 
 ## Architecture
 
@@ -46,6 +51,10 @@ Data flow, spanning modules:
 keychain (refresh token) ──▶ auth.TokenManager ──▶ 1h access token
                                                         │ Bearer
                                           client.AwareClient ──▶ CDN people.json feed
+                                                        │
+                             session.loadPeople (30-min disk cache) ──▶ Person[]
+                                            ╱                    ╲
+                                     cli.ts (text)          tools.ts (JSON) ──▶ mcp.ts (stdio)
 ```
 
 - **`src/auth.ts`** — `refreshAccessToken` calls Cognito `InitiateAuth/REFRESH_TOKEN_AUTH`
@@ -64,6 +73,26 @@ keychain (refresh token) ──▶ auth.TokenManager ──▶ 1h access token
   is best-effort (a cache failure never breaks a command).
 - **`src/keychain.ts`** — thin wrapper over the macOS `security` CLI. The refresh token
   never touches the repo or a plaintext file.
+- **`src/session.ts`** — what the CLI and the MCP server both need: `makeTokenManager`
+  (keychain-backed, reader injected for tests) and `loadPeople` (cache-then-network).
+  A missing credential raises `MissingCredentialsError` rather than exiting, because the CLI
+  wants to die on it and the server has to answer it. It fails *before* the network call:
+  Cognito would otherwise reply "Invalid Refresh Token", which misreads as an expired session
+  to someone who never logged in.
+- **`src/tools.ts`** — the four MCP tool handlers as plain async functions over an injected
+  `ToolDeps`. No SDK import, so tests exercise them directly. `guard()` turns every throw into
+  an `isError` result — an escaping rejection would kill the stdio process and the client's
+  session with it. `clampLimit` coerces an out-of-range limit instead of rejecting it (a model
+  asking for 999 is better served 50 than a validation error).
+- **`src/server.ts`** — the MCP-facing contract: zod input/output schemas, tool names,
+  descriptions, and `readOnlyHint` annotations. `createServer(deps)` returns a server without
+  connecting a transport, which is what makes `test/server.test.ts` possible. Tool results carry
+  `structuredContent` *and* the same payload serialized into a text block, as the spec asks of
+  tools that return structured output.
+- **`src/mcp.ts`** — the stdio entry point, and nothing else: build the token manager, the
+  client and the deps, then `connect(new StdioServerTransport())`. **stdout is the protocol
+  channel** — one `console.log` anywhere in this module graph corrupts the stream and the client
+  disconnects; diagnostics go to stderr.
 - **`src/cli.ts`** — command dispatch. `promptSecret` reads via the TTY's raw mode, or from
   piped stdin (`pbpaste | aware login`). Bootstrap is paste-only by design: a
   browser-POSTs-to-localhost variant was removed because an unauthenticated local endpoint
@@ -73,4 +102,6 @@ keychain (refresh token) ──▶ auth.TokenManager ──▶ 1h access token
 
 - Everything committed is in English (code, comments, commit messages); the repo may go public.
 - Tests cover logic with real edge cases (token refresh timing, 401-retry, search/email
-  filtering). Wrappers (keychain, CLI dispatch) are not unit-tested.
+  filtering, org-chart cycles, cache-vs-network). Wrappers (keychain, CLI dispatch) are not
+  unit-tested. `test/server.test.ts` drives the real MCP machinery over `InMemoryTransport`,
+  so a renamed tool or a malformed schema fails the suite; the unit tests never see that layer.

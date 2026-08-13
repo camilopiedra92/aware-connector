@@ -115,6 +115,85 @@ export function formatPersonLines(p: Person): string[] {
   return lines;
 }
 
+export interface PersonSummary {
+  workerId?: string;
+  name?: string;
+  email?: string;
+  title?: string;
+  manager?: string;
+  managerWorkerId?: string;
+  organization?: string;
+  city?: string;
+  country?: string;
+}
+
+/**
+ * Project a raw feed record onto the handful of fields worth sending to a model.
+ * Records carry ~32 Workday columns; empty ones are dropped rather than emitted as
+ * `""`, since a key with no value costs context and tells the reader nothing.
+ */
+export function toPersonSummary(p: Person): PersonSummary {
+  const fields: [keyof PersonSummary, unknown][] = [
+    ["workerId", p.Worker_ID],
+    ["name", p.Preferred_Name],
+    ["email", p.Work_Email],
+    ["title", p.Business_Title],
+    ["manager", p.Managers_Display_Name],
+    ["managerWorkerId", p.Managers_Worker_ID],
+    ["organization", p.Supervisory_Organization_Name],
+    ["city", p.Work_Location_City],
+    ["country", p.Work_Location_Country],
+  ];
+  const summary: PersonSummary = {};
+  for (const [key, value] of fields) {
+    const text = value == null ? "" : String(value);
+    if (text.length > 0) summary[key] = text;
+  }
+  return summary;
+}
+
+/** Index the feed by Worker_ID, skipping records with no id (they can never be a manager). */
+function indexByWorkerId(people: Person[]): Map<string, Person> {
+  const byId = new Map<string, Person>();
+  for (const p of people) {
+    const id = String(p.Worker_ID ?? "");
+    if (id) byId.set(id, p);
+  }
+  return byId;
+}
+
+/**
+ * The reporting line above a person, nearest manager first, up to the top.
+ *
+ * The feed is a graph, not a guaranteed tree: a manager id can point at a record
+ * the export omitted, or back into the chain during a reorg. Both end the walk —
+ * a cycle here would hang the caller, so `seen` is the termination condition, not
+ * a defensive extra.
+ */
+export function managerChain(people: Person[], person: Person): Person[] {
+  const byId = indexByWorkerId(people);
+  const chain: Person[] = [];
+  const seen = new Set<string>([String(person.Worker_ID ?? "")]);
+
+  let current = person;
+  for (;;) {
+    const managerId = String(current.Managers_Worker_ID ?? "");
+    if (!managerId || seen.has(managerId)) return chain;
+    const manager = byId.get(managerId);
+    if (!manager) return chain;
+    seen.add(managerId);
+    chain.push(manager);
+    current = manager;
+  }
+}
+
+/** Everyone whose manager is this person. Records with a blank Worker_ID have no reports. */
+export function directReports(people: Person[], person: Person): Person[] {
+  const id = String(person.Worker_ID ?? "");
+  if (!id) return [];
+  return people.filter((p) => String(p.Managers_Worker_ID ?? "") === id);
+}
+
 /** Find a person by exact email (case-insensitive). Used by the `me` command. */
 export function findByEmail(people: Person[], email: string): Person | undefined {
   const target = email.trim().toLowerCase();
