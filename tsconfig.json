@@ -4,6 +4,10 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "allowImportingTsExtensions": true,
+    // Node's type-stripping erases types without emitting code, so enums, namespaces
+    // and parameter properties fail at runtime. This turns that into a typecheck error
+    // instead of an ERR_INVALID_TYPESCRIPT_SYNTAX crash the first time the file loads.
+    "erasableSyntaxOnly": true,
     "noEmit": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,

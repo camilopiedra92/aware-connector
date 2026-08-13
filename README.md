@@ -138,9 +138,11 @@ npm test                                   # node --test over test/
 node --test test/auth.test.ts              # one file
 node --test --test-name-pattern="refresh"  # by test name
 npm run typecheck                          # tsc --noEmit; the only "build"
+npm run lint                               # eslint . — type-aware rules only
 ```
 
-There is no linter and no bundler. Tests cover the parts with real edge cases —
+There is no bundler: nothing is shipped over a network, so the CLI runs from source
+and stack traces need no source maps. Tests cover the parts with real edge cases —
 token refresh timing, 401-retry, search and email filtering, org-chart cycles,
 cache-vs-network — plus a suite that drives the real MCP server over an in-memory
 transport, so a renamed tool or a malformed schema fails the build.

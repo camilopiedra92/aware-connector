@@ -15,8 +15,10 @@ export function emailFromIdToken(idToken: string): string | null {
   try {
     const payload = idToken.split(".")[1];
     if (!payload) return null;
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString());
-    return typeof claims.email === "string" ? claims.email.toLowerCase() : null;
+    const claims: unknown = JSON.parse(Buffer.from(payload, "base64url").toString());
+    if (typeof claims !== "object" || claims === null) return null;
+    const email = (claims as Record<string, unknown>)["email"];
+    return typeof email === "string" ? email.toLowerCase() : null;
   } catch {
     return null;
   }
@@ -38,7 +40,8 @@ export function parseInitiateAuthResponse(body: unknown): AccessTokenResult {
   const record = body as Record<string, unknown>;
 
   if (record["__type"] === "NotAuthorizedException") {
-    throw new RefreshTokenExpiredError(String(record["message"] ?? "Not authorized"));
+    const message = record["message"];
+    throw new RefreshTokenExpiredError(typeof message === "string" ? message : "Not authorized");
   }
 
   const result = record["AuthenticationResult"];

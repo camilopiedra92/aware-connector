@@ -54,7 +54,9 @@ function person(overrides: Partial<Person>): Person {
 test("getPeople sends a Bearer token and returns the parsed feed", async () => {
   const seen: { url: string; auth: string | null }[] = [];
   const fetchImpl = (async (url, init) => {
-    seen.push({ url: String(url), auth: new Headers(init?.headers).get("authorization") });
+    // fetch's first argument is `Request | string | URL`; only the Request case
+    // needs unwrapping, and stringifying it instead would record "[object Object]".
+    seen.push({ url: url instanceof Request ? url.url : String(url), auth: new Headers(init?.headers).get("authorization") });
     return jsonResponse(200, { Report_Entry: [person({ Worker_ID: "42", Work_Email: "me@autodesk.com" })] });
   }) as typeof fetch;
 

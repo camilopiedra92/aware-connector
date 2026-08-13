@@ -13,10 +13,12 @@ npm test                                 # run all tests (node --test over test/
 node --test test/auth.test.ts            # run a single test file
 node --test --test-name-pattern="refresh" # run tests whose name matches a pattern
 npm run typecheck                        # tsc --noEmit (the only "build" — nothing is compiled/emitted)
+npm run lint                             # eslint . (type-aware rules; needs a green typecheck to be meaningful)
 ```
 
-There is no linter or build step. TypeScript runs directly via Node's native
-type-stripping; `tsc` is used only for type-checking.
+There is no build step. TypeScript runs directly via Node's native type-stripping;
+`tsc` is used only for type-checking. ESLint carries only type-aware rules and the
+`no-console` ban described below — style is left to the compiler's strict settings.
 
 ## Runtime constraints
 
@@ -28,6 +30,9 @@ type-stripping; `tsc` is used only for type-checking.
 - **Node type-stripping is strip-only**, so TS syntax that emits code is forbidden:
   no parameter properties (`constructor(private x)` — declare fields explicitly), no
   enums, no namespaces. Local `.ts` imports must include the `.ts` extension.
+  `erasableSyntaxOnly` in `tsconfig.json` enforces this: without it the typecheck happily
+  accepts an enum that crashes with `ERR_INVALID_TYPESCRIPT_SYNTAX` the first time Node
+  loads the file.
 - **Runtime deps are confined to the MCP entry point.** `@modelcontextprotocol/server` and
   `zod` exist only for `src/mcp.ts`; `src/cli.ts` and everything it imports stay dependency-free,
   so `node src/cli.ts` works against an empty `node_modules`. Keep it that way. `@modelcontextprotocol/server`
@@ -108,7 +113,11 @@ keychain (refresh token) ──▶ auth.TokenManager ──▶ 1h access token
   filtering, org-chart cycles, cache-vs-network). Wrappers (keychain, CLI dispatch) are not
   unit-tested. `test/server.test.ts` drives the real MCP machinery over `InMemoryTransport`,
   so a renamed tool or a malformed schema fails the suite; the unit tests never see that layer.
-- CI (`.github/workflows/ci.yml`) runs the suite and the typecheck on macOS against Node 24
-  and 26. A separate job runs `node src/cli.ts` on a bare checkout, before any `npm ci`, so
-  the "CLI has no runtime dependencies" rule above fails the build the moment it is broken —
-  the unit tests always run with `node_modules` present and cannot see it.
+- CI (`.github/workflows/ci.yml`) runs the suite, the typecheck and the lint on macOS against
+  Node 24 and 26. A separate job runs `node src/cli.ts` on a bare checkout, before any
+  `npm ci`, so the "CLI has no runtime dependencies" rule above fails the build the moment it
+  is broken — the unit tests always run with `node_modules` present and cannot see it.
+- The stdout rule for `src/mcp.ts` is enforced twice, deliberately. ESLint's `no-console`
+  catches the obvious mistake at author time; `test/mcp-stdout.test.ts` spawns the real
+  server and asserts every stdout line parses as JSON-RPC, which also catches what the rule
+  structurally cannot — `process.stdout.write`, a dependency's banner, a Node warning.

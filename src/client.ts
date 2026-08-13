@@ -98,7 +98,7 @@ export class AwareClient {
 }
 
 /** Join present, non-empty parts with a separator (skips fields absent from the feed). */
-function joinParts(parts: unknown[], sep: string): string {
+function joinParts(parts: (string | undefined)[], sep: string): string {
   return parts.map((v) => (v == null ? "" : String(v))).filter((s) => s.length > 0).join(sep);
 }
 
@@ -133,7 +133,9 @@ export interface PersonSummary {
  * `""`, since a key with no value costs context and tells the reader nothing.
  */
 export function toPersonSummary(p: Person): PersonSummary {
-  const fields: [keyof PersonSummary, unknown][] = [
+  // `string | undefined`, not `string`: Person types these as required, but real feed
+  // records omit columns, so the value is missing at runtime however it is declared.
+  const fields: [keyof PersonSummary, string | undefined][] = [
     ["workerId", p.Worker_ID],
     ["name", p.Preferred_Name],
     ["email", p.Work_Email],
