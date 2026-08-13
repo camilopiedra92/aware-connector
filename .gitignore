@@ -1,0 +1,8 @@
+node_modules/
+*.log
+.DS_Store
+# Never commit any captured token material
+*.token
+*.secret
+.env
+.env.*

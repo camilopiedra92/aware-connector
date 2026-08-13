@@ -1,0 +1,22 @@
+{
+  "name": "aware-connector",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local connector for Autodesk Aware: refreshes a Cognito token and reads people/org data",
+  "type": "module",
+  "bin": {
+    "aware": "src/cli.ts"
+  },
+  "scripts": {
+    "aware": "node src/cli.ts",
+    "test": "node --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "@types/node": "^24.3.0"
+  }
+}
