@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only: nothing here publishes, comments, or writes back to the repo.
+permissions:
+  contents: read
+
+# A newer push to the same ref makes the in-flight run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # macOS is not a preference: the keychain (`security`) and `pbpaste` code paths
+    # only exist here, so a Linux runner would be testing a different program.
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor declared in package.json `engines`, and the version developed
+        # against in mise.toml. Both are supported, so both must stay green.
+        node-version: [24, 26]
+    name: test (node ${{ matrix.node-version }})
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+
+  cli-without-deps:
+    # Guards the invariant that the CLI imports nothing outside the standard
+    # library: it must run before `npm install` ever happens. The unit tests
+    # cannot catch a stray import here, because they run with node_modules present.
+    runs-on: macos-latest
+    name: cli runs with an empty node_modules
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Run the CLI with no dependencies installed
+        run: |
+          test ! -d node_modules
+          out=$(node src/cli.ts)
+          grep -q '^Usage:' <<<"$out"

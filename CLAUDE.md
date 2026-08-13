@@ -15,13 +15,16 @@ node --test --test-name-pattern="refresh" # run tests whose name matches a patte
 npm run typecheck                        # tsc --noEmit (the only "build" — nothing is compiled/emitted)
 ```
 
-There is no linter or build step. TypeScript runs directly on Node 26 via native
+There is no linter or build step. TypeScript runs directly via Node's native
 type-stripping; `tsc` is used only for type-checking.
 
 ## Runtime constraints
 
-- **Node 26+ and macOS only.** Relies on native `fetch`, TS type-stripping, `node:test`,
+- **Node 24+ and macOS only.** Relies on native `fetch`, TS type-stripping, `node:test`,
   and `parseArgs`, plus the macOS `security` CLI (keychain) and `pbpaste` (bootstrap).
+  24 is the floor because it is the active LTS, not because of a language feature —
+  the code also runs on 22.18+, where type-stripping stopped needing a flag. Development
+  happens on the version `mise.toml` pins (26); CI proves both ends of that range.
 - **Node type-stripping is strip-only**, so TS syntax that emits code is forbidden:
   no parameter properties (`constructor(private x)` — declare fields explicitly), no
   enums, no namespaces. Local `.ts` imports must include the `.ts` extension.
@@ -100,8 +103,12 @@ keychain (refresh token) ──▶ auth.TokenManager ──▶ 1h access token
 
 ## Conventions
 
-- Everything committed is in English (code, comments, commit messages); the repo may go public.
+- Everything committed is in English (code, comments, commit messages); the repo is public.
 - Tests cover logic with real edge cases (token refresh timing, 401-retry, search/email
   filtering, org-chart cycles, cache-vs-network). Wrappers (keychain, CLI dispatch) are not
   unit-tested. `test/server.test.ts` drives the real MCP machinery over `InMemoryTransport`,
   so a renamed tool or a malformed schema fails the suite; the unit tests never see that layer.
+- CI (`.github/workflows/ci.yml`) runs the suite and the typecheck on macOS against Node 24
+  and 26. A separate job runs `node src/cli.ts` on a bare checkout, before any `npm ci`, so
+  the "CLI has no runtime dependencies" rule above fails the build the moment it is broken —
+  the unit tests always run with `node_modules` present and cannot see it.

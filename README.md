@@ -1,5 +1,7 @@
 # aware-connector
 
+[![CI](https://github.com/camilopiedra92/aware-connector/actions/workflows/ci.yml/badge.svg)](https://github.com/camilopiedra92/aware-connector/actions/workflows/ci.yml)
+
 Read Autodesk's Aware employee directory from your terminal, or expose it to an
 LLM as an MCP server.
 
@@ -23,8 +25,9 @@ Showing 2 of 47 matches. Refine the query, or use --limit N / --all.
 
 - **macOS.** The refresh token is stored with the `security` keychain CLI, and
   `pbpaste` is used for the paste-based login.
-- **Node 26.** Pinned in `mise.toml`. TypeScript runs directly via Node's native
-  type-stripping — there is no build step and nothing is compiled.
+- **Node 24 or newer** — the active LTS, and the floor CI tests against.
+  Development happens on Node 26, which `mise.toml` pins. TypeScript runs directly
+  via Node's native type-stripping, so there is no build step and nothing is compiled.
 
 ## Install
 
@@ -141,6 +144,10 @@ There is no linter and no bundler. Tests cover the parts with real edge cases �
 token refresh timing, 401-retry, search and email filtering, org-chart cycles,
 cache-vs-network — plus a suite that drives the real MCP server over an in-memory
 transport, so a renamed tool or a malformed schema fails the build.
+
+CI runs all of that on macOS against Node 24 and 26, and separately runs the CLI
+on a bare checkout with no `npm install`, which is what keeps the "the CLI has no
+runtime dependencies" claim honest.
 
 ## Disclaimer
 
