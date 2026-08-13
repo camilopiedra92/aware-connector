@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { AwareClient, findByEmail, formatPersonLines, searchPeople, type Person } from "./client.ts";
-import { emailFromIdToken, refreshAccessToken, RefreshTokenExpiredError, TokenManager } from "./auth.ts";
-import { deleteRefreshToken, readRefreshToken, saveRefreshToken } from "./keychain.ts";
-import { readFeedCache, writeFeedCache } from "./cache.ts";
+import { emailFromIdToken, refreshAccessToken, RefreshTokenExpiredError } from "./auth.ts";
+import { deleteRefreshToken, saveRefreshToken } from "./keychain.ts";
+import { loadPeople, makeTokenManager } from "./session.ts";
 
 const DEFAULT_SEARCH_LIMIT = 20;
 
@@ -81,31 +81,6 @@ function promptSecret(prompt: string): Promise<string> {
     };
     input.on("data", onData);
   });
-}
-
-/** A token manager backed by the stored refresh token; exits with guidance if absent. */
-function makeTokenManager(): TokenManager {
-  return new TokenManager({
-    getRefreshToken: async () => {
-      const token = await readRefreshToken();
-      if (!token) {
-        console.error("No stored credentials. Run `aware login` first.");
-        process.exit(1);
-      }
-      return token;
-    },
-  });
-}
-
-/** Load the org feed, preferring the fresh local cache unless `refresh` is set. */
-async function loadPeople(client: AwareClient, refresh: boolean): Promise<Person[]> {
-  if (!refresh) {
-    const cached = readFeedCache();
-    if (cached) return cached;
-  }
-  const people = await client.getPeople();
-  writeFeedCache(people);
-  return people;
 }
 
 async function cmdLogin(): Promise<void> {
