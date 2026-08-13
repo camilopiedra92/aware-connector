@@ -97,6 +97,24 @@ export class AwareClient {
   }
 }
 
+/** Join present, non-empty parts with a separator (skips fields absent from the feed). */
+function joinParts(parts: unknown[], sep: string): string {
+  return parts.map((v) => (v == null ? "" : String(v))).filter((s) => s.length > 0).join(sep);
+}
+
+/** Render a person as display lines, tolerating fields missing from some feed records. */
+export function formatPersonLines(p: Person): string[] {
+  const lines = [joinParts([p.Preferred_Name, p.Business_Title], "  ·  ")];
+  const location = joinParts([p.Work_Location_City, p.Work_Location_Country], ", ");
+  lines.push("  " + joinParts([p.Work_Email, location], "  ·  "));
+  const chain = joinParts([
+    p.Managers_Display_Name ? `manager: ${p.Managers_Display_Name}` : "",
+    p.Supervisory_Organization_Name ? `org: ${p.Supervisory_Organization_Name}` : "",
+  ], "  ·  ");
+  if (chain) lines.push("  " + chain);
+  return lines;
+}
+
 /** Find a person by exact email (case-insensitive). Used by the `me` command. */
 export function findByEmail(people: Person[], email: string): Person | undefined {
   const target = email.trim().toLowerCase();

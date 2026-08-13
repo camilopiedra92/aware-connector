@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AwareClient, AwareApiError, findByEmail, searchPeople, type Person } from "../src/client.ts";
+import { AwareClient, AwareApiError, findByEmail, formatPersonLines, searchPeople, type Person } from "../src/client.ts";
 
 /** Minimal fake matching the slice of TokenManager the client depends on. */
 function fakeTokens(tokens: string[]) {
@@ -95,6 +95,31 @@ test("searchPeople matches name, email, or title, case-insensitively", () => {
   assert.deepEqual(searchPeople(people, "engineer").map((p) => p.Worker_ID), ["3"]);
   assert.equal(searchPeople(people, "nobody").length, 0);
   assert.equal(searchPeople(people, "  ").length, 0);
+});
+
+test("formatPersonLines omits fields that are missing from the feed record", () => {
+  // 123 real records lack Work_Location_City; the location must not read "undefined, ...".
+  const lines = formatPersonLines(person({
+    Preferred_Name: "Jane Doe",
+    Business_Title: "Engineer",
+    Work_Email: "jane@autodesk.com",
+    Work_Location_City: "",
+    Work_Location_Country: "United States",
+    Managers_Display_Name: "Bob",
+    Supervisory_Organization_Name: "Platform",
+  }));
+  assert.deepEqual(lines, [
+    "Jane Doe  ·  Engineer",
+    "  jane@autodesk.com  ·  United States",
+    "  manager: Bob  ·  org: Platform",
+  ]);
+  assert.ok(!lines.join("\n").includes("undefined"));
+});
+
+test("formatPersonLines drops the manager/org line when both are absent", () => {
+  const lines = formatPersonLines(person({ Preferred_Name: "Solo", Work_Email: "solo@x.com" }));
+  assert.equal(lines.length, 2); // name/title line + email line, no chain line
+  assert.ok(!lines.join("\n").includes("manager:"));
 });
 
 test("findByEmail matches one person case-insensitively", () => {

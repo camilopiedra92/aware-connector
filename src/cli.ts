@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { AwareClient, findByEmail } from "./client.ts";
+import { AwareClient, findByEmail, formatPersonLines } from "./client.ts";
 import { emailFromIdToken, refreshAccessToken, RefreshTokenExpiredError, TokenManager } from "./auth.ts";
 import { deleteRefreshToken, readRefreshToken, saveRefreshToken } from "./keychain.ts";
 
@@ -113,9 +113,7 @@ async function cmdLogin(): Promise<void> {
 
 /** Print one person as a readable block. */
 function printPerson(p: import("./client.ts").Person): void {
-  console.log(`${p.Preferred_Name}  ·  ${p.Business_Title}`);
-  console.log(`  ${p.Work_Email}  ·  ${p.Work_Location_City}, ${p.Work_Location_Country}`);
-  console.log(`  manager: ${p.Managers_Display_Name}  ·  org: ${p.Supervisory_Organization_Name}`);
+  for (const line of formatPersonLines(p)) console.log(line);
 }
 
 async function cmdMe(): Promise<void> {
