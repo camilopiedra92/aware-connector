@@ -82,6 +82,22 @@ test("TokenManager refreshes again once the token is within the safety window", 
   assert.equal(calls, 2);
 });
 
+test("TokenManager.getIdToken returns the id token without an extra refresh", async () => {
+  let calls = 0;
+  const tm = new TokenManager({
+    getRefreshToken: async () => "rt",
+    refresh: async () => {
+      calls++;
+      return { accessToken: `at-${calls}`, idToken: `id-${calls}`, expiresInSeconds: 3600 };
+    },
+    now: () => 1_000,
+  });
+
+  await tm.getAccessToken();              // refresh #1
+  assert.equal(await tm.getIdToken(), "id-1"); // reuses the cached refresh, no #2
+  assert.equal(calls, 1);
+});
+
 test("TokenManager.forceRefresh invalidates the cached token", async () => {
   let calls = 0;
   const tm = new TokenManager({

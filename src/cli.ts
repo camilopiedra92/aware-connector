@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { AwareClient, findByEmail, formatPersonLines } from "./client.ts";
+import { AwareClient, findByEmail, formatPersonLines, searchPeople, type Person } from "./client.ts";
 import { emailFromIdToken, refreshAccessToken, RefreshTokenExpiredError, TokenManager } from "./auth.ts";
 import { deleteRefreshToken, readRefreshToken, saveRefreshToken } from "./keychain.ts";
+import { readFeedCache, writeFeedCache } from "./cache.ts";
+
+const DEFAULT_SEARCH_LIMIT = 20;
 
 const USAGE = `aware-connector — read Autodesk Aware from the terminal
 
@@ -12,6 +15,11 @@ Usage:
   aware search <query>   Search people by name, email, or title
   aware people           Fetch the full org feed (~20k people) as JSON on stdout
   aware logout           Remove the stored refresh token
+
+Options:
+  --limit N              Max results for search (default ${DEFAULT_SEARCH_LIMIT})
+  --all                  Show all matches (overrides --limit)
+  --refresh              Bypass the local feed cache and re-fetch
 
 First-time setup (aware login):
   1. Open https://one.autodesk.com/apps/aware/ in Chrome, logged in.
@@ -75,9 +83,9 @@ function promptSecret(prompt: string): Promise<string> {
   });
 }
 
-/** Build a client backed by the stored refresh token, or exit with guidance if absent. */
-async function buildClient(): Promise<AwareClient> {
-  const tokenManager = new TokenManager({
+/** A token manager backed by the stored refresh token; exits with guidance if absent. */
+function makeTokenManager(): TokenManager {
+  return new TokenManager({
     getRefreshToken: async () => {
       const token = await readRefreshToken();
       if (!token) {
@@ -87,7 +95,17 @@ async function buildClient(): Promise<AwareClient> {
       return token;
     },
   });
-  return new AwareClient({ tokenManager });
+}
+
+/** Load the org feed, preferring the fresh local cache unless `refresh` is set. */
+async function loadPeople(client: AwareClient, refresh: boolean): Promise<Person[]> {
+  if (!refresh) {
+    const cached = readFeedCache();
+    if (cached) return cached;
+  }
+  const people = await client.getPeople();
+  writeFeedCache(people);
+  return people;
 }
 
 async function cmdLogin(): Promise<void> {
@@ -112,23 +130,19 @@ async function cmdLogin(): Promise<void> {
 }
 
 /** Print one person as a readable block. */
-function printPerson(p: import("./client.ts").Person): void {
+function printPerson(p: Person): void {
   for (const line of formatPersonLines(p)) console.log(line);
 }
 
-async function cmdMe(): Promise<void> {
-  const token = await readRefreshToken();
-  if (!token) {
-    console.error("No stored credentials. Run `aware login` first.");
-    process.exit(1);
-  }
-  const { idToken } = await refreshAccessToken(token);
-  const email = idToken ? emailFromIdToken(idToken) : null;
+async function cmdMe(refresh: boolean): Promise<void> {
+  const tokenManager = makeTokenManager();
+  // One refresh: the id token and the access token used to fetch the feed share it.
+  const email = emailFromIdToken((await tokenManager.getIdToken()) ?? "");
   if (!email) {
     console.error("Could not determine your email from the id token.");
     process.exit(1);
   }
-  const me = findByEmail(await (await buildClient()).getPeople(), email);
+  const me = findByEmail(await loadPeople(new AwareClient({ tokenManager }), refresh), email);
   if (!me) {
     console.error(`Signed in as ${email}, but no matching record in the org feed.`);
     process.exit(1);
@@ -136,24 +150,27 @@ async function cmdMe(): Promise<void> {
   printPerson(me);
 }
 
-async function cmdSearch(query: string): Promise<void> {
+async function cmdSearch(query: string, limit: number, all: boolean, refresh: boolean): Promise<void> {
   if (!query) {
-    console.error("Usage: aware search <query>");
+    console.error("Usage: aware search <query> [--limit N] [--all]");
     process.exit(1);
   }
-  const client = await buildClient();
-  const matches = await client.search(query);
+  const matches = searchPeople(await loadPeople(new AwareClient({ tokenManager: makeTokenManager() }), refresh), query);
   if (matches.length === 0) {
     console.error(`No matches for "${query}".`);
     return;
   }
-  for (const p of matches) printPerson(p);
-  console.error(`\n${matches.length} match(es).`);
+  const shown = all ? matches : matches.slice(0, limit);
+  for (const p of shown) printPerson(p);
+  if (shown.length < matches.length) {
+    console.error(`\nShowing ${shown.length} of ${matches.length} matches. Refine the query, or use --limit N / --all.`);
+  } else {
+    console.error(`\n${matches.length} match(es).`);
+  }
 }
 
-async function cmdPeople(): Promise<void> {
-  const client = await buildClient();
-  const people = await client.getPeople();
+async function cmdPeople(refresh: boolean): Promise<void> {
+  const people = await loadPeople(new AwareClient({ tokenManager: makeTokenManager() }), refresh);
   console.log(JSON.stringify(people, null, 2));
   console.error(`\n${people.length} people.`);
 }
@@ -164,15 +181,26 @@ async function cmdLogout(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const { positionals } = parseArgs({ allowPositionals: true });
+  const { positionals, values } = parseArgs({
+    allowPositionals: true,
+    options: {
+      limit: { type: "string" },
+      all: { type: "boolean", default: false },
+      refresh: { type: "boolean", default: false },
+    },
+  });
   const [command, ...rest] = positionals;
+  const parsedLimit = Number.parseInt(values.limit ?? "", 10);
+  const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : DEFAULT_SEARCH_LIMIT;
+  const all = values.all ?? false;
+  const refresh = values.refresh ?? false;
 
   try {
     switch (command) {
       case "login": return await cmdLogin();
-      case "me": return await cmdMe();
-      case "search": return await cmdSearch(rest.join(" "));
-      case "people": return await cmdPeople();
+      case "me": return await cmdMe(refresh);
+      case "search": return await cmdSearch(rest.join(" "), limit, all, refresh);
+      case "people": return await cmdPeople(refresh);
       case "logout": return await cmdLogout();
       default:
         console.log(USAGE);

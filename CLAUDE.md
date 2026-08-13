@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm install                              # dev deps only (typescript, @types/node); zero runtime deps
 node src/cli.ts <command>                # run the CLI (login | me | search <q> | people | logout)
+node src/cli.ts search <q> --limit 5     # search flags: --limit N, --all; --refresh bypasses the feed cache
 npm test                                 # run all tests (node --test over test/*.ts)
 node --test test/auth.test.ts            # run a single test file
 node --test --test-name-pattern="refresh" # run tests whose name matches a pattern
@@ -50,11 +51,17 @@ keychain (refresh token) ──▶ auth.TokenManager ──▶ 1h access token
 - **`src/auth.ts`** — `refreshAccessToken` calls Cognito `InitiateAuth/REFRESH_TOKEN_AUTH`
   (public client, no secret). `TokenManager` caches the access token and only refreshes
   when it is within a safety window of expiry. `now`/`refresh` are injected so tests drive
-  the clock and the network. `emailFromIdToken` decodes the OIDC id token for `me`.
+  the clock and the network. `getIdToken()` returns the id token from the same cached
+  session (so `me` resolves identity without a second refresh); `emailFromIdToken` decodes it.
 - **`src/client.ts`** — `AwareClient.getPeople()` fetches and unwraps `Report_Entry`.
-  `search` and `me` filter that feed **client-side** (mirroring the web app); there is no
-  backend search. `#getJson` refreshes once and retries on a 401. `searchPeople` and
-  `findByEmail` are pure functions, unit-tested directly.
+  `search`/`me` filter that feed **client-side** (mirroring the web app); there is no
+  backend search. `#getJson` refreshes once and retries on a 401. `searchPeople`,
+  `findByEmail`, and `formatPersonLines` (tolerates fields missing from some records)
+  are pure functions, unit-tested directly.
+- **`src/cache.ts`** — the ~27 MB feed is cached in `~/Library/Caches/aware-connector`
+  with a 30-min TTL (matching Aware's own Workday refresh cadence). The CLI's `loadPeople`
+  reads the cache unless `--refresh` is passed. `isFresh` is pure and tested; the fs I/O
+  is best-effort (a cache failure never breaks a command).
 - **`src/keychain.ts`** — thin wrapper over the macOS `security` CLI. The refresh token
   never touches the repo or a plaintext file.
 - **`src/cli.ts`** — command dispatch. `promptSecret` reads via the TTY's raw mode, or from

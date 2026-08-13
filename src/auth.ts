@@ -93,7 +93,7 @@ export class TokenManager {
   readonly #getRefreshToken: () => Promise<string>;
   readonly #refresh: (refreshToken: string) => Promise<AccessTokenResult>;
   readonly #now: () => number;
-  #cached: { token: string; expiresAtMs: number } | null = null;
+  #cached: { token: string; idToken?: string; expiresAtMs: number } | null = null;
 
   constructor(deps: TokenManagerDeps) {
     this.#getRefreshToken = deps.getRefreshToken;
@@ -111,11 +111,18 @@ export class TokenManager {
 
   async forceRefresh(): Promise<string> {
     const refreshToken = await this.#getRefreshToken();
-    const { accessToken, expiresInSeconds } = await this.#refresh(refreshToken);
+    const { accessToken, expiresInSeconds, idToken } = await this.#refresh(refreshToken);
     this.#cached = {
       token: accessToken,
+      ...(idToken !== undefined ? { idToken } : {}),
       expiresAtMs: this.#now() + expiresInSeconds * 1000,
     };
     return accessToken;
+  }
+
+  /** The id token from the current (fresh) session, or undefined if the issuer omitted it. */
+  async getIdToken(): Promise<string | undefined> {
+    await this.getAccessToken(); // ensure a non-expired session is cached
+    return this.#cached?.idToken;
   }
 }
