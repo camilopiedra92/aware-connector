@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm install                              # dev deps only (typescript, @types/node); zero runtime deps
-node src/cli.ts <command>                # run the CLI (login | capture | me | search <q> | people | logout)
+node src/cli.ts <command>                # run the CLI (login | me | search <q> | people | logout)
 npm test                                 # run all tests (node --test over test/*.ts)
 node --test test/auth.test.ts            # run a single test file
 node --test --test-name-pattern="refresh" # run tests whose name matches a pattern
@@ -58,8 +58,9 @@ keychain (refresh token) ──▶ auth.TokenManager ──▶ 1h access token
 - **`src/keychain.ts`** — thin wrapper over the macOS `security` CLI. The refresh token
   never touches the repo or a plaintext file.
 - **`src/cli.ts`** — command dispatch. `promptSecret` reads via the TTY's raw mode, or from
-  piped stdin (`pbpaste | aware login`). `capture` runs a one-shot localhost listener for a
-  browser to POST the token into (bootstrap alternative to paste).
+  piped stdin (`pbpaste | aware login`). Bootstrap is paste-only by design: a
+  browser-POSTs-to-localhost variant was removed because an unauthenticated local endpoint
+  that stores a credential is CSRF-vulnerable (any open web page could plant a token).
 
 ## Conventions
 

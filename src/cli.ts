@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { createServer } from "node:http";
 import { AwareClient, findByEmail } from "./client.ts";
 import { emailFromIdToken, refreshAccessToken, RefreshTokenExpiredError, TokenManager } from "./auth.ts";
 import { deleteRefreshToken, readRefreshToken, saveRefreshToken } from "./keychain.ts";
@@ -112,46 +111,6 @@ async function cmdLogin(): Promise<void> {
   console.log("ok. Stored in keychain. Try `aware search <name>`.");
 }
 
-const CAPTURE_PORT = 53682;
-
-/**
- * Receive the refresh token from the browser over a one-shot local HTTP listener,
- * validate it, and store it. Used when the token cannot be pasted (it stays in the
- * browser and is POSTed straight to this process, never through argv/stdout).
- */
-async function cmdCapture(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    const server = createServer((req, res) => {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-      if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
-      if (req.method !== "POST") { res.writeHead(405); res.end("post the token"); return; }
-
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", async () => {
-        const token = body.trim();
-        try {
-          await refreshAccessToken(token); // reject bad tokens before storing
-          await saveRefreshToken(token);
-          res.writeHead(200); res.end("stored");
-          console.log("ok. Refresh token validated and stored in keychain.");
-        } catch (err) {
-          const msg = err instanceof RefreshTokenExpiredError ? "invalid or expired token" : (err as Error).message;
-          res.writeHead(400); res.end(msg);
-          console.error(`rejected: ${msg}`);
-        } finally {
-          server.close(() => resolve());
-        }
-      });
-    });
-    server.listen(CAPTURE_PORT, "127.0.0.1", () => {
-      console.log(`Listening on http://127.0.0.1:${CAPTURE_PORT} for the browser to send the token...`);
-    });
-  });
-}
-
 /** Print one person as a readable block. */
 function printPerson(p: import("./client.ts").Person): void {
   console.log(`${p.Preferred_Name}  ·  ${p.Business_Title}`);
@@ -213,7 +172,6 @@ async function main(): Promise<void> {
   try {
     switch (command) {
       case "login": return await cmdLogin();
-      case "capture": return await cmdCapture();
       case "me": return await cmdMe();
       case "search": return await cmdSearch(rest.join(" "));
       case "people": return await cmdPeople();
