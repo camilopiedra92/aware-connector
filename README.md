@@ -40,6 +40,12 @@ npm link             # optional, puts `aware` on your PATH
 
 Without `npm link`, run commands as `node src/cli.ts <command>`.
 
+If you manage Node with a version manager (mise, nvm, fnm), be aware that
+`npm link` writes into the npm prefix of the *exact* version that is active, so
+the command disappears the next time you upgrade Node. A small wrapper on your
+PATH that calls `node /path/to/src/cli.ts "$@"` survives that, and lets you pin
+which runtime the CLI gets rather than inheriting the current directory's.
+
 ## Logging in
 
 Aware issues tokens through an AWS Cognito user pool federated to Azure AD. The
