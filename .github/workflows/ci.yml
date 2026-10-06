@@ -53,3 +53,19 @@ jobs:
           test ! -d node_modules
           out=$(node src/cli.ts)
           grep -q '^Usage:' <<<"$out"
+
+  ci-passed:
+    # The one check the default branch's ruleset requires (declared in
+    # dotfiles' github/repos.json). Its name does not move with the matrix, so
+    # adding a Node version does not change what the ruleset must name. It
+    # passes only if every job above succeeded: a failed, cancelled or skipped
+    # one fails it.
+    if: always()
+    needs: [test, cli-without-deps]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every required job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<<"$NEEDS"
+
